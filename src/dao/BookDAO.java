@@ -1,42 +1,90 @@
-// File: src/dao/BookDAO.java
+// File: src/com/perpustakaanku/dao/BookDAO.java
 package dao;
 
-import config.DatabaseConnection; // Pastikan import ini sesuai dengan struktur paket Anda
-import models.Book;             // Pastikan import ini sesuai dengan struktur paket Anda
+import config.DatabaseConnection;
+import models.Book;
 
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import javax.swing.JOptionPane; // Anda masih memiliki ini di permanentlyDeleteBook
+// import javax.swing.JOptionPane; // Sudah kita hapus dari DAO
 
 public class BookDAO {
 
+    // Metode addBook DIMODIFIKASI untuk manual ID generation dan reuse
     public boolean addBook(Book book) {
-        String sql = "INSERT INTO books (title, author, publisher, year, isbn, stock) VALUES (?, ?, ?, ?, ?, ?)";
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+        String findNextIdSQL;
+        // Coba cari ID terkecil yang tidak terpakai (celah pertama)
+        // Jika tidak ada celah, ambil MAX(id) + 1. Jika tabel kosong, mulai dari 1.
+        findNextIdSQL = "SELECT COALESCE(MIN(t1.id + 1), 1) AS next_id " +
+                        "FROM books t1 " +
+                        "LEFT JOIN books t2 ON t1.id + 1 = t2.id " +
+                        "WHERE t2.id IS NULL " +
+                        "AND NOT EXISTS (SELECT 1 FROM books WHERE id = 1 AND t1.id IS NULL)"; // Handle kasus tabel kosong atau ID 1 belum ada
+
+        String findMaxIdSQL = "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM books";
+
+        String sqlInsert = "INSERT INTO books (id, title, author, publisher, year, isbn, stock) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        Connection conn = null;
+        int nextId = 1; // Default jika tabel kosong
+
+        try {
+            conn = DatabaseConnection.getConnection();
             if (conn == null) {
                 System.err.println("BookDAO: Koneksi DB null untuk addBook.");
                 return false;
             }
-            pstmt.setString(1, book.getTitle());
-            pstmt.setString(2, book.getAuthor());
-            pstmt.setString(3, book.getPublisher());
-            if (book.getYear() == 0) { pstmt.setNull(4, Types.INTEGER); } 
-            else { pstmt.setInt(4, book.getYear()); }
-            pstmt.setString(5, book.getIsbn());
-            pstmt.setInt(6, book.getStock());
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                try (ResultSet generatedKeys = pstmt.getGeneratedKeys()) {
-                    if (generatedKeys.next()) {
-                        book.setId(generatedKeys.getInt(1));
+
+            // Tentukan ID berikutnya
+            boolean idFoundFromGap = false;
+            try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery("SELECT id FROM books ORDER BY id ASC")) {
+                List<Integer> existingIds = new ArrayList<>();
+                while (rs.next()) {
+                    existingIds.add(rs.getInt("id"));
+                }
+
+                if (existingIds.isEmpty()) {
+                    nextId = 1;
+                    idFoundFromGap = true;
+                } else {
+                    int expectedId = 1;
+                    for (int existingId : existingIds) {
+                        if (existingId > expectedId) {
+                            nextId = expectedId;
+                            idFoundFromGap = true;
+                            break;
+                        }
+                        expectedId = existingId + 1;
+                    }
+                    if (!idFoundFromGap) {
+                        nextId = existingIds.get(existingIds.size() - 1) + 1;
                     }
                 }
-                return true;
             }
+             System.out.println("DEBUG: Next ID yang akan digunakan: " + nextId);
+
+
+            // Masukkan buku dengan ID yang sudah ditentukan
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlInsert)) {
+                book.setId(nextId); // Set ID pada objek Book
+
+                pstmt.setInt(1, book.getId());
+                pstmt.setString(2, book.getTitle());
+                pstmt.setString(3, book.getAuthor());
+                pstmt.setString(4, book.getPublisher());
+                if (book.getYear() == 0) { pstmt.setNull(5, Types.INTEGER); } 
+                else { pstmt.setInt(5, book.getYear()); }
+                pstmt.setString(6, book.getIsbn());
+                pstmt.setInt(7, book.getStock());
+                
+                int affectedRows = pstmt.executeUpdate();
+                return affectedRows > 0;
+            }
+
         } catch (SQLException e) {
-            System.err.println("Error saat menambah buku: " + e.getMessage());
+            System.err.println("Error saat menambah buku dengan manual ID: " + e.getMessage());
+            e.printStackTrace();
         }
         return false;
     }
@@ -138,7 +186,7 @@ public class BookDAO {
         try (Connection conn = DatabaseConnection.getConnection()) {
             if (conn == null) {
                 System.err.println("BookDAO: Koneksi DB null untuk isbnExists.");
-                return true; // Anggap ada jika koneksi gagal (safety)
+                return true; 
             }
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, isbn);
@@ -207,34 +255,66 @@ public class BookDAO {
 
     public boolean permanentlyDeleteBook(int id, String adminUsername) {
         Book bookToDelete = getBookById(id); 
-        String sql = "DELETE FROM books WHERE id = ?";
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            if (conn == null) return false;
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setInt(1, id);
-                int affectedRows = pstmt.executeUpdate();
-                if (affectedRows > 0) {
-                    String itemData = "Permanently deleted book.";
-                    if (bookToDelete != null) { 
-                         itemData = String.format("Permanently deleted Book - Title: %s, ISBN: %s",
-                            bookToDelete.getTitle(), bookToDelete.getIsbn());
-                    }
-                    logToRecycleBin(id, "Book", "permanently_deleted", adminUsername, itemData);
-                    return true;
-                } else {
-                    System.err.println("Gagal menghapus permanen buku dengan ID: " + id + ". Mungkin sudah terhapus atau terkait dengan transaksi.");
+        
+        String deleteTransactionsSQL = "DELETE FROM transactions WHERE book_id = ?";
+        String deleteBookSQL = "DELETE FROM books WHERE id = ?";
+        Connection conn = null;
+
+        try {
+            conn = DatabaseConnection.getConnection();
+            if (conn == null) {
+                System.err.println("BookDAO: Koneksi DB null untuk permanentlyDeleteBook.");
+                return false;
+            }
+            conn.setAutoCommit(false); 
+
+            try (PreparedStatement pstmtTransactions = conn.prepareStatement(deleteTransactionsSQL)) {
+                pstmtTransactions.setInt(1, id);
+                int transactionsAffected = pstmtTransactions.executeUpdate();
+                System.out.println("DEBUG: Jumlah transaksi terkait buku ID " + id + " yang dihapus: " + transactionsAffected);
+            }
+            
+            int bookAffectedRows = 0;
+            try (PreparedStatement pstmtBook = conn.prepareStatement(deleteBookSQL)) {
+                pstmtBook.setInt(1, id);
+                bookAffectedRows = pstmtBook.executeUpdate();
+            }
+
+            if (bookAffectedRows > 0) {
+                conn.commit(); 
+                String itemData = "Permanently deleted book and its transaction history.";
+                if (bookToDelete != null) { 
+                     itemData = String.format("Permanently deleted Book - Title: %s, ISBN: %s (and associated transactions)",
+                        bookToDelete.getTitle(), bookToDelete.getIsbn());
+                }
+                logToRecycleBin(id, "Book", "permanently_deleted", adminUsername, itemData);
+                return true;
+            } else {
+                System.err.println("Gagal menghapus permanen buku dengan ID: " + id + ". Buku mungkin sudah tidak ada.");
+                conn.rollback(); 
+                return false;
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error SQL saat permanently delete buku beserta transaksinya: " + e.getMessage());
+            e.printStackTrace();
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    System.err.println("Error saat rollback: " + ex.getMessage());
                 }
             }
-        } catch (SQLException e) {
-            System.err.println("Error saat permanently delete buku: " + e.getMessage());
-            // Anda masih memiliki JOptionPane di sini. Sesuai diskusi kita, ini sebaiknya dihapus
-            // dan penanganan notifikasi dilakukan di UI.
-            if (e.getMessage().toLowerCase().contains("foreign key constraint fails")) {
-                // JOptionPane.showMessageDialog(null, "Buku tidak bisa dihapus permanen karena masih terkait dengan data transaksi aktif.", "Error Hapus Permanen", JOptionPane.ERROR_MESSAGE);
-                System.err.println("DETAIL: Buku terkait dengan transaksi aktif."); // Cukup log error di DAO
+            return false;
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);
+                } catch (SQLException ex) {
+                    System.err.println("Error saat mengembalikan auto-commit: " + ex.getMessage());
+                }
             }
         }
-        return false;
     }
 
     public List<Book> getSoftDeletedBooks() {
@@ -278,7 +358,6 @@ public class BookDAO {
         }
     }
 
-    // === METODE STATISTIK DASHBOARD (dengan penanganan koneksi null lebih baik) ===
     public int getTotalActiveBooksCount() {
         String sql = "SELECT COUNT(*) FROM books WHERE deleted_at IS NULL";
         Connection conn = null;

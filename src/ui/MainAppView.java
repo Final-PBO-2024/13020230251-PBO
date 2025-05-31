@@ -5,16 +5,16 @@ import config.DatabaseConnection;
 import dao.BookDAO;
 import dao.MemberDAO;
 import dao.TransactionDAO;
-import models.ActivityLogItem; // Pastikan import ini ada
+import models.ActivityLogItem; 
 
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableColumnModel; // Ditambahkan untuk pengaturan kolom
+import javax.swing.table.TableColumnModel;
 import java.awt.*;
 import java.text.SimpleDateFormat; 
-import java.util.Date; // Untuk format tanggal di tabel aktivitas
+import java.util.Date; 
 import java.util.HashMap;
 import java.util.List; 
 import java.util.Map;
@@ -30,7 +30,7 @@ public class MainAppView extends JFrame {
     private MembersPanel actualMembersPanel;
     private TransactionsPanel actualTransactionsPanel;
     private RecycleBinPanel actualRecycleBinPanel;
-    private JPanel categoriesPanelPlaceholder; 
+    // HAPUS: private JPanel categoriesPanelPlaceholder; 
 
     private JLabel currentAdminLabel;
     private String loggedInAdminUsername;
@@ -69,14 +69,14 @@ public class MainAppView extends JFrame {
         actualTransactionsPanel = new TransactionsPanel(this.loggedInAdminUsername);
         actualRecycleBinPanel = new RecycleBinPanel(this.loggedInAdminUsername); 
         
-        categoriesPanelPlaceholder = createPlaceholderPanel("Manajemen Kategori", "Fitur ini telah dihapus.", "image_fd33eb.png");
+        // HAPUS: categoriesPanelPlaceholder = createPlaceholderPanel("Manajemen Kategori", "Fitur ini telah dihapus.", "image_fd33eb.png");
         
         mainPanel.add(dashboardPanel, "Dashboard");
         mainPanel.add(actualBooksPanel, "Books"); 
         mainPanel.add(actualMembersPanel, "Members"); 
         mainPanel.add(actualTransactionsPanel, "Transactions"); 
         mainPanel.add(actualRecycleBinPanel, "Recycle Bin"); 
-        mainPanel.add(categoriesPanelPlaceholder, "Categories"); // Tombol Categories masih ada, tapi panelnya placeholder
+        // HAPUS: mainPanel.add(categoriesPanelPlaceholder, "Categories"); 
 
         add(mainPanel, BorderLayout.CENTER);
 
@@ -122,7 +122,8 @@ public class MainAppView extends JFrame {
         navigationButtonPanel.setBackground(new Color(248, 249, 250)); 
         navigationButtonPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(222, 226, 230))); 
 
-        String[] menuItems = {"Dashboard", "Books", "Members", "Transactions", "Recycle Bin", "Categories"};
+        // ***** PERUBAHAN DI SINI: "Categories" dihapus dari menuItems *****
+        String[] menuItems = {"Dashboard", "Books", "Members", "Transactions", "Recycle Bin"};
         navigationButtons.clear(); 
 
         for (String itemName : menuItems) {
@@ -132,14 +133,13 @@ public class MainAppView extends JFrame {
 
             menuButton.addActionListener(e -> {
                 setActiveButton(menuButton);
-                // Jika panel yang diklik adalah Dashboard, refresh datanya
                 if ("Dashboard".equals(itemName) && dashboardPanel != null) { 
                     System.out.println("DEBUG: Refreshing Dashboard Panel..."); 
-                    mainPanel.remove(dashboardPanel); // Hapus instance lama
-                    dashboardPanel = createDashboardPanel(); // Buat instance baru dengan data terbaru
-                    mainPanel.add(dashboardPanel, "Dashboard"); // Tambahkan kembali ke CardLayout
-                    mainPanel.revalidate(); // Penting setelah menambah/menghapus komponen
-                    mainPanel.repaint();    // Penting setelah menambah/menghapus komponen
+                    mainPanel.remove(dashboardPanel); 
+                    dashboardPanel = createDashboardPanel(); 
+                    mainPanel.add(dashboardPanel, "Dashboard"); 
+                    mainPanel.revalidate(); 
+                    mainPanel.repaint();    
                 }
                 cardLayout.show(mainPanel, itemName); 
             });
@@ -230,7 +230,6 @@ public class MainAppView extends JFrame {
         return panel;
     }
     
-    // === METODE createDashboardPanel() YANG DIMODIFIKASI ===
     private JPanel createDashboardPanel() {
         System.out.println("DEBUG: createDashboardPanel() dipanggil."); 
         JPanel panel = new JPanel(new BorderLayout(10, 10));
@@ -267,8 +266,7 @@ public class MainAppView extends JFrame {
         contentPanel.add(activityLabel);
         contentPanel.add(Box.createRigidArea(new Dimension(0,10))); 
         
-        // ***** PERUBAHAN KOLOM TABEL AKTIVITAS *****
-        String[] columnNamesActivity = {"Aktivitas", "Detail", "Tanggal", "Pengguna", "Status"}; // 5 KOLOM
+        String[] columnNamesActivity = {"Aktivitas", "Detail", "Tanggal", "Pengguna", "Status"};
         DefaultTableModel activityTableModel = new DefaultTableModel(null, columnNamesActivity) {
             @Override public boolean isCellEditable(int r, int c){ return false; }
         };
@@ -290,24 +288,25 @@ public class MainAppView extends JFrame {
         SimpleDateFormat sdfDashboard = new SimpleDateFormat("dd MMM yy, HH:mm");
 
         if (recentActivities.isEmpty()) {
-            // Placeholder data dengan 5 elemen agar sesuai jumlah kolom
             Object[] placeholderRowData = new Object[]{"Tidak ada aktivitas terkini.", "", "", "", ""}; 
             System.out.println("DEBUG: Menambah placeholder row ke tabel aktivitas: " + java.util.Arrays.toString(placeholderRowData));
             activityTableModel.addRow(placeholderRowData);
         } else {
             for (ActivityLogItem item : recentActivities) { 
                 Vector<Object> rowData = new Vector<>();
-                rowData.add(item.getActivityType());    // Data ke-1
-                rowData.add(item.getDetails());         // Data ke-2
-                rowData.add(item.getActivityDate() != null ? sdfDashboard.format(new Date(item.getActivityDate().getTime())) : "N/A"); // Data ke-3
-                rowData.add(item.getActor());           // Data ke-4
-                rowData.add(item.getStatus());          // Data ke-5
+                rowData.add(item.getActivityType());    
+                rowData.add(item.getDetails());         
+                rowData.add(item.getActivityDate() != null ? sdfDashboard.format(new Date(item.getActivityDate().getTime())) : "N/A"); 
+                rowData.add(item.getActor());           
+                rowData.add(item.getStatus());          
                 System.out.println("DEBUG: Menambah row ke tabel aktivitas: " + rowData + " (size: " + rowData.size() + ")");
-                activityTableModel.addRow(rowData); 
+                if(rowData.size() == activityTableModel.getColumnCount()){ 
+                    activityTableModel.addRow(rowData); 
+                } else {
+                     System.err.println("WARNING: Ukuran rowData dari ActivityLogItem tidak cocok! Row: " + rowData);
+                }
             }
         }
-        // ***** AKHIR PERUBAHAN PENGISIAN TABEL AKTIVITAS *****
-
         System.out.println("DEBUG: activityTableModel row count: " + activityTableModel.getRowCount()); 
         System.out.println("DEBUG: activityTableModel column count: " + activityTableModel.getColumnCount()); 
         
